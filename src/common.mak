@@ -89,10 +89,10 @@ RPI_DEFS=-DRPI=$(RPI)
 endif
 
 ifeq ($(OSNAME),)
-OSNAME := $(shell uname -o)
+OSNAME := $(shell uname -o 2>/dev/null || uname -s)
 endif
 
-REAL_OSNAME := $(shell uname -o)
+REAL_OSNAME := $(shell uname -o 2>/dev/null || uname -s)
 
 ifeq ($(OSNAME),GNU/Linux)
 SYS_OS=1
@@ -191,8 +191,26 @@ OSDEFS=$(MBITS) -DHAIKU -DSOEXT=\"$(SOEXT)\"
 CC=gcc
 FC=gfortran
 
+else ifeq ($(OSNAME),Darwin)
+SYS_OS=8
+EXTLIBS=
+SOEXT=.so
+LUAPLAT=macosx
+OS=Darwin
+OSDEFS=$(MBITS) -DDARWIN -D_DARWIN_C_SOURCE -DSOEXT=\"$(SOEXT)\" -Wno-deprecated-declarations
+CC=clang
+FC=gfortran
+NM=$(SRC)/darwin/nm.sh
+SHARED=-shared -undefined dynamic_lookup -Wl,-install_name,@rpath/$(notdir $@)
+EXE_LDFLAGS=-Wl,-rpath,@executable_path/bin
+STRIP=touch
+
 else
 $(error Unknown OS $(OSNAME))
+endif
+
+ifeq ($(SHARED),)
+SHARED=-shared
 endif
 
 EM_CC=emcc
@@ -202,12 +220,16 @@ ifeq ($(TYPE),release)
 OPTIMIZATION=-O2
 HEAP_DEBUG=-DHEAP_DEBUG
 MUTE_DEBUG=-DMUTE_DEBUG
+ifneq ($(OSNAME),Darwin)
 STRIP=strip
+endif
 else
 OPTIMIZATION=-g
 HEAP_DEBUG=-DHEAP_DEBUG
 LOGTRAP=-DLOGTRAP
+ifneq ($(OSNAME),Darwin)
 STRIP=touch
+endif
 endif
 
 ifeq ($(USE_C99),no)

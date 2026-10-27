@@ -415,6 +415,37 @@ static void change_top(wman_t *wm, int area, int select, int unselect) {
   }
 }
 
+// Changes the desktop bounds. Callers must rebuild the background and
+// border textures afterwards (see pumpkin_set_host_depth).
+void wman_resize(wman_t *wm, int width, int height) {
+  if (wm) {
+    set_rect(&wm->r, 0, 0, width, height, "wman_resize");
+  }
+}
+
+// Returns the id of the topmost area, or -1 if there is none.
+int wman_top(wman_t *wm) {
+  return (wm && wm->n > 0) ? wm->area[wm->n-1].id : -1;
+}
+
+// Moves an area to x,y without changing the stacking order. Nothing is
+// drawn; the caller must do a full redraw afterwards.
+int wman_set_xy(wman_t *wm, int id, int x, int y) {
+  int i;
+
+  if (wm) {
+    for (i = 0; i < wm->n; i++) {
+      if (wm->area[i].id == id) {
+        wm->area[i].r.x = x;
+        wm->area[i].r.y = y;
+        return 0;
+      }
+    }
+  }
+
+  return -1;
+}
+
 void wman_clear(wman_t *wm) {
   wman_draw(wm, WMAN_BACK, 0, 0, wm->r.width, wm->r.height, 0, 0);
 }

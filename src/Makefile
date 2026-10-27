@@ -38,6 +38,19 @@ endif
 
 EXTRA_MODULES=$(UNICORN_MODULE) windows
 
+else ifeq ($(OSNAME),Darwin)
+
+ifeq ($(shell which sdl2-config),)
+ERROR=make_error
+ERROR_MSG=Could not find sdl2-config (install SDL2 and put its bin dir in PATH)
+endif
+
+ifneq ($(UNICORN),)
+UNICORN_MODULE=UnicornArm
+endif
+
+EXTRA_MODULES=$(UNICORN_MODULE) liblsdl2 linux
+
 else ifeq ($(OSNAME),Haiku)
 
 ifneq ($(UNICORN),)

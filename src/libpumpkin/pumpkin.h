@@ -753,6 +753,7 @@ void pumpkin_taskbar_create(void);
 void pumpkin_taskbar_add(LocalID dbID, UInt32 creator, char *name);
 void pumpkin_taskbar_remove(LocalID dbID);
 void pumpkin_taskbar_update(void);
+int pumpkin_taskbar_pending(void);
 void pumpkin_taskbar_destroy(void);
 void pumpkin_taskbar_ui(int show);
 

@@ -16,6 +16,7 @@ extern "C" {
 #define WINDOW_BUTTONUP    7
 #define WINDOW_WHEEL       8
 #define WINDOW_EXPOSE      9
+#define WINDOW_RESIZE      10  // arg1 = new width, arg2 = new height
 #define WINDOW_CUSTOM      0xFF
 
 #define WINDOW_MOD_SHIFT      0x01

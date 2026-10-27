@@ -30,9 +30,9 @@ all: $(PROGRAM)
 $(PROGRAM): $(OBJS)
 	@echo Linking libpit$(SOEXT)
 ifeq ($(OSNAME),Android)
-	@$(CC) -shared -o $(PROGRAM) $(OBJS) $(EXTLIBS) $(OSLDEFS) -Wl,-soname,libpit$(SOEXT) -lm
+	@$(CC) $(SHARED) -o $(PROGRAM) $(OBJS) $(EXTLIBS) $(OSLDEFS) -Wl,-soname,libpit$(SOEXT) -lm
 else
-	@$(CC) -shared -o $(PROGRAM) $(OBJS) -lpthread $(EXTLIBS) -lm
+	@$(CC) $(SHARED) -o $(PROGRAM) $(OBJS) -lpthread $(EXTLIBS) -lm
 	@$(STRIP) $(PROGRAM)
 endif
 

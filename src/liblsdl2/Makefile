@@ -19,6 +19,10 @@ CUSTOMFLAGS=-s USE_SDL=2
 else ifeq ($(OSNAME),Msys)
 CUSTOMFLAGS=$(MIXER_FLAGS) $(OPENGL_FLAGS)
 LIBS=-lSDL2 -lversion -limm32 -lgdi32 -lsetupapi -lwinmm -lole32 -loleaut32 $(MIXER_LIBS)
+else ifeq ($(OSNAME),Darwin)
+SDL_PREFIX=$(shell sdl2-config --prefix)
+CUSTOMFLAGS=$(MIXER_FLAGS) $(OPENGL_FLAGS) -I$(SDL_PREFIX)/include -D_THREAD_SAFE -DGL_SILENCE_DEPRECATION
+LIBS=-L$(SDL_PREFIX)/lib -lSDL2 $(MIXER_LIBS) -framework OpenGL -Wl,-rpath,$(SDL_PREFIX)/lib
 else
 CUSTOMFLAGS=$(MIXER_FLAGS) $(OPENGL_FLAGS)
 LIBS=-lSDL2 $(MIXER_LIBS) $(OPENGL_LIBS)

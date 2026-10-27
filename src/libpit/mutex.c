@@ -23,6 +23,13 @@ struct sema_t {
   sem_t sem;
   sem_t *s;
   int named;
+#if defined(DARWIN)
+  // macOS has no unnamed POSIX semaphores (sem_init always fails),
+  // so unnamed ones are emulated with a mutex + condition variable.
+  pthread_mutex_t m;
+  pthread_cond_t c;
+  int count;
+#endif
 };
 
 mutex_t *mutex_create(char *name) {
@@ -258,6 +265,149 @@ int semaphore_wait(sema_t *sem, int block) {
 
 int semaphore_timedwait(sema_t *sem, int us) {
   return -1;
+}
+
+#elif defined(DARWIN)
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+sema_t *semaphore_create_named(char *name, int count) {
+  sema_t *sem;
+
+  if ((sem = xcalloc(1, sizeof(sema_t))) != NULL) {
+    if ((sem->s = sem_open(name, O_CREAT | O_EXCL, S_IWUSR | S_IRUSR, count)) == (sem_t *)SEM_FAILED) {
+      debug_errno("MUTEX", "sem_open \"%s\"", name);
+      xfree(sem);
+      sem = NULL;
+    } else {
+      debug(DEBUG_TRACE, "MUTEX", "created named semaphore \"%s\" (%p)", name, sem);
+      sem->named = 1;
+    }
+  }
+
+  return sem;
+}
+
+sema_t *semaphore_create(int count) {
+  sema_t *sem;
+
+  if ((sem = xcalloc(1, sizeof(sema_t))) != NULL) {
+    pthread_mutex_init(&sem->m, NULL);
+    pthread_cond_init(&sem->c, NULL);
+    sem->count = count;
+    debug(DEBUG_TRACE, "MUTEX", "created semaphore (%p)", sem);
+  }
+
+  return sem;
+}
+
+int semaphore_post(sema_t *sem) {
+  int r = -1;
+
+  if (sem) {
+    if (sem->named) {
+      if ((r = sem_post(sem->s)) != 0) debug_errno("MUTEX", "sem_post");
+    } else {
+      pthread_mutex_lock(&sem->m);
+      sem->count++;
+      pthread_cond_signal(&sem->c);
+      pthread_mutex_unlock(&sem->m);
+      r = 0;
+    }
+  }
+
+  return r;
+}
+
+int semaphore_wait(sema_t *sem, int block) {
+  int r = -1;
+
+  if (sem) {
+    if (sem->named) {
+      r = block ? sem_wait(sem->s) : sem_trywait(sem->s);
+      if (r != 0 && errno != EAGAIN) debug_errno("MUTEX", "sem_wait");
+    } else {
+      pthread_mutex_lock(&sem->m);
+      if (block) {
+        while (sem->count == 0) pthread_cond_wait(&sem->c, &sem->m);
+      }
+      if (sem->count > 0) {
+        sem->count--;
+        r = 0;
+      } else {
+        errno = EAGAIN;
+      }
+      pthread_mutex_unlock(&sem->m);
+    }
+  }
+
+  return r;
+}
+
+int semaphore_timedwait(sema_t *sem, int us) {
+  struct timespec ts;
+  struct timeval tv;
+  int64_t t;
+  int r = -1, e = 0;
+
+  if (sem) {
+    if (sem->named) {
+      // no sem_timedwait on macOS: poll
+      for (t = 0; ; t += 1000) {
+        if ((r = sem_trywait(sem->s)) == 0) break;
+        if (t >= us) { errno = ETIMEDOUT; break; }
+        usleep(1000);
+      }
+    } else {
+      gettimeofday(&tv, NULL);
+      t = (int64_t)tv.tv_sec * 1000000 + tv.tv_usec + us;
+      ts.tv_sec = t / 1000000;
+      ts.tv_nsec = (t % 1000000) * 1000;
+      pthread_mutex_lock(&sem->m);
+      while (sem->count == 0 && e == 0) {
+        e = pthread_cond_timedwait(&sem->c, &sem->m, &ts);
+      }
+      if (sem->count > 0) {
+        sem->count--;
+        r = 0;
+      } else {
+        errno = ETIMEDOUT;
+      }
+      pthread_mutex_unlock(&sem->m);
+    }
+  }
+
+  return r;
+}
+
+int semaphore_destroy(sema_t *sem) {
+  int r = -1;
+
+  if (sem) {
+    if (sem->named) {
+      if ((r = sem_close(sem->s)) != 0) debug_errno("MUTEX", "sem_close");
+    } else {
+      pthread_cond_destroy(&sem->c);
+      pthread_mutex_destroy(&sem->m);
+      r = 0;
+    }
+    xfree(sem);
+  }
+
+  return r;
+}
+
+int semaphore_remove_named(char *name) {
+  int r = -1;
+
+  if (name) {
+    if ((r = sem_unlink(name)) != 0) debug_errno("MUTEX", "sem_unlink");
+  }
+
+  return r;
 }
 
 #else

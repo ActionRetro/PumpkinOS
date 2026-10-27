@@ -104,6 +104,7 @@ typedef struct {
   Boolean finish, top, deploy, reload;
   Int16 lastMinute;
   RectangleType gadRect, sclRect;
+  RectangleType gadBase, sclBase; // design-time bounds, captured on frmOpenEvent
   UInt32 filterDbType, filterCreator, filterResType, filterId;
   Boolean filterRsrc;
   LocalID dbID;
@@ -2594,10 +2595,11 @@ static void resize(FormType *frm, launcher_data_t *data) {
 
   // gadget
   objIndex = FrmGetObjectIndex(frm, iconsGad);
-  rect.topLeft.x = data->gadRect.topLeft.x;
-  rect.topLeft.y = data->gadRect.topLeft.y;
-  rect.extent.x = data->gadRect.extent.x + (swidth  - 160);
-  rect.extent.y = data->gadRect.extent.y + (sheight - 160);
+  // computed from the design-time bounds so repeated resizes don't accumulate
+  rect.topLeft.x = data->gadBase.topLeft.x;
+  rect.topLeft.y = data->gadBase.topLeft.y;
+  rect.extent.x = data->gadBase.extent.x + (swidth  - 160);
+  rect.extent.y = data->gadBase.extent.y + (sheight - 160);
   FrmSetObjectBounds(frm, objIndex, &rect);
   FrmGetObjectBounds(frm, objIndex, &data->gadRect);
 
@@ -2611,10 +2613,11 @@ static void resize(FormType *frm, launcher_data_t *data) {
   if (totalRows > rows) {
     SclSetScrollBar(scl, 0, 0, totalRows - rows, (totalRows - rows) >= rows ? rows - 1 : totalRows - rows);
   }
-  rect.topLeft.x = swidth - data->sclRect.extent.x;
-  rect.topLeft.y = data->sclRect.topLeft.y;
-  rect.extent.x = data->sclRect.extent.x;
-  rect.extent.y = data->sclRect.extent.y + (sheight - 160);
+  rect.topLeft.x = swidth - data->sclBase.extent.x;
+  rect.topLeft.y = data->sclBase.topLeft.y;
+  rect.extent.x = data->sclBase.extent.x;
+  rect.extent.y = data->sclBase.extent.y + (sheight - 160);
+  data->sclRect = rect;
   FrmSetObjectBounds(frm, objIndex, &rect);
 
   FrmSetUsable(frm, objIndex, totalRows > rows);
@@ -2670,10 +2673,12 @@ static Boolean MainFormHandleEvent(EventPtr event) {
       FrmSetMenu(frm, pumpkin_get_mode() == 0 ? MainMenu : ReducedMainMenu);
       FreeTitle(frm);
       gadIndex = FrmGetObjectIndex(frm, iconsGad);
-      FrmGetObjectBounds(frm, gadIndex, &data->gadRect);
       sclIndex = FrmGetObjectIndex(frm, iconsScl);
-      FrmGetObjectBounds(frm, sclIndex, &data->sclRect);
       if (event->eType == frmOpenEvent) {
+        // the form is still at its design size here; frmUpdateEvent comes
+        // after resize() already changed the bounds, so don't re-read them
+        FrmGetObjectBounds(frm, gadIndex, &data->gadBase);
+        FrmGetObjectBounds(frm, sclIndex, &data->sclBase);
         FrmSetDIAPolicyAttr(frm, frmDIAPolicyCustom);
         PINSetInputTriggerState(pinInputTriggerEnabled);
         PINSetInputAreaState(pinInputAreaOpen);
@@ -2916,6 +2921,10 @@ static void EventLoop(launcher_data_t *data) {
 
   do {
     CheckNotifications();
+    if (pumpkin_taskbar_pending()) {
+      // desktop was resized: rebuild the taskbar at its new width
+      pumpkin_taskbar_update();
+    }
     EvtGetEvent(&event, 30);
     if (SysHandleEvent(&event)) continue;
     if (MenuHandleEvent(NULL, &event, &err)) continue;
@@ -3167,6 +3176,9 @@ UInt32 PilotMain(UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
       break;
     case 7:
       debug(DEBUG_INFO, PUMPKINOS, "Host OS is Haiku");
+      break;
+    case 8:
+      debug(DEBUG_INFO, PUMPKINOS, "Host OS is macOS");
       break;
     default:
       debug(DEBUG_ERROR, PUMPKINOS, "Host OS is unknown");

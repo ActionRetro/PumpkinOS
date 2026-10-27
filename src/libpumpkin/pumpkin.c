@@ -1413,6 +1413,78 @@ void pumpkin_taskbar_update(void) {
   }
 }
 
+int pumpkin_taskbar_pending(void) {
+  int r = 0;
+
+  if (mutex_lock(mutex) == 0) {
+    r = taskbar_resize_pending(pumpkin_module.taskbar);
+    mutex_unlock(mutex);
+  }
+
+  return r;
+}
+
+// Resizes the desktop to match a resized host window (mode 0 only).
+// Called from pumpkin_sys_event with the module mutex held.
+// Height left for the Launcher above the taskbar (if there is one).
+static int taskbar_h(int height) {
+  return pumpkin_module.taskbar ? height - TASKBAR_HEIGHT : height;
+}
+
+static void pumpkin_resize_desktop(int width, int height) {
+  PumpkinPreferencesType prefs;
+  RegDimensionType regDim;
+  RegPositionType regPos;
+  int i, j;
+
+  if (pumpkin_module.mode != 0 || pumpkin_module.wm == NULL) return;
+  if (width <= 0 || height <= 0) return;
+  if (width == pumpkin_module.width && height == pumpkin_module.full_height) return;
+
+  debug(DEBUG_INFO, PUMPKINOS, "resizing desktop from %dx%d to %dx%d", pumpkin_module.width, pumpkin_module.full_height, width, height);
+  pumpkin_module.width = width;
+  pumpkin_module.height = height;
+  pumpkin_module.full_height = height;
+
+  // window manager bounds, then solid background and border textures
+  wman_resize(pumpkin_module.wm, width, height);
+  pumpkin_set_host_depth(0);
+
+  // background image, if any, is redrawn at the new size
+  if (pumpkin_module.background) {
+    surface_destroy(pumpkin_module.background);
+    pumpkin_module.background = NULL;
+    pumpkin_get_preference(BOOT_CREATOR, PUMPKINOS_PREFS_ID, &prefs, sizeof(PumpkinPreferencesType), true);
+    if (prefs.value[pBackgroundImage] & 0xFFFF) {
+      pumpkin_image_background(&prefs.color[pColorBackground], prefs.value[pBackgroundImage] & 0xFFFF, prefs.value[pBackgroundImage] >> 16);
+    }
+  }
+
+  // the taskbar is rebuilt by its owner thread (the Launcher)
+  taskbar_resize(pumpkin_module.taskbar, 0, height - TASKBAR_HEIGHT, width);
+
+  // the Launcher acts as the desktop: move it to the corner and make it fill
+  // the new desktop (it relayouts itself on winDisplayChangedEvent). Apps
+  // open on top of it stay on top.
+  for (j = 0; j < pumpkin_module.num_tasks; j++) {
+    i = pumpkin_module.task_order[j];
+    if (pumpkin_module.tasks[i].creator == 'lnch') {
+      wman_set_xy(pumpkin_module.wm, pumpkin_module.tasks[i].taskId, 0, 0);
+      pumpkin_module.tasks[i].new_width = width;
+      pumpkin_module.tasks[i].new_height = taskbar_h(height);
+      regDim.width = width;
+      regDim.height = taskbar_h(height);
+      pumpkin_reg_set('lnch', regDimensionID, &regDim, sizeof(RegDimensionType));
+      regPos.x = 0;
+      regPos.y = 0;
+      pumpkin_reg_set('lnch', regPositionID, &regPos, sizeof(RegPositionType));
+    }
+  }
+
+  pumpkin_module.refresh = 1;
+  pumpkin_module.render = 1;
+}
+
 void pumpkin_taskbar_destroy(void) {
   if (mutex_lock(mutex) == 0) {
     if (pumpkin_module.taskbar) {
@@ -2924,13 +2996,20 @@ static int pumpkin_changed_display(pumpkin_task_t *task, task_screen_t *screen, 
 
     old = task->texture;
     if ((texture = pumpkin_module.wp->create_texture(pumpkin_module.w, width, height)) != NULL) {
-      wman_remove(pumpkin_module.wm, task->taskId, 0);
-      wman_texture(pumpkin_module.wm, task->taskId, texture, width, height);
+      if (wman_top(pumpkin_module.wm) == task->taskId) {
+        wman_remove(pumpkin_module.wm, task->taskId, 0);
+        wman_texture(pumpkin_module.wm, task->taskId, texture, width, height);
+        wman_raise(pumpkin_module.wm, task->taskId);
+      } else {
+        // a window behind others (e.g. the Launcher when the desktop is
+        // resized) keeps its place in the stack; redraw everything instead
+        wman_texture(pumpkin_module.wm, task->taskId, texture, width, height);
+        pumpkin_module.refresh = 1;
+      }
       task->texture = texture;
       task->width = width;
       task->height = height;
       if (old) pumpkin_module.wp->destroy_texture(pumpkin_module.w, old);
-      wman_raise(pumpkin_module.wm, task->taskId);
       r = 0;
     }
   }
@@ -3211,6 +3290,10 @@ int pumpkin_must_finish(void) {
   return r;
 }
 
+// 5-way Select held down, as both palmOne (keyBitNavSelect) and
+// Handspring (keyBitRockerCenter) apps check for it
+#define KEY_BITS_SELECT (0x04000000 | 0x00100000)
+
 static void pumpkin_set_key(int key) {
   switch (key) {
     case WINDOW_KEY_DOWN:  pumpkin_module.keyMask |= keyBitPageDown;   break;
@@ -3222,6 +3305,7 @@ static void pumpkin_set_key(int key) {
     case WINDOW_KEY_F3:    pumpkin_module.keyMask |= keyBitHard3;      break;
     case WINDOW_KEY_F4:    pumpkin_module.keyMask |= keyBitHard4;      break;
     case WINDOW_KEY_END:   pumpkin_module.keyMask |= keyBitPower;      break;
+    case WINDOW_KEY_F9:    pumpkin_module.keyMask |= KEY_BITS_SELECT;  break;
     case WINDOW_KEY_SHIFT: pumpkin_module.modMask |= WINDOW_MOD_SHIFT; break;
     case WINDOW_KEY_CTRL:  pumpkin_module.modMask |= WINDOW_MOD_CTRL;  break;
     case WINDOW_KEY_RCTRL: pumpkin_module.modMask |= WINDOW_MOD_RCTRL; break;
@@ -3246,6 +3330,7 @@ static int pumpkin_reset_key(int key) {
     case WINDOW_KEY_F3:    pumpkin_module.keyMask &= ~keyBitHard3;    break;
     case WINDOW_KEY_F4:    pumpkin_module.keyMask &= ~keyBitHard4;    break;
     case WINDOW_KEY_END:   pumpkin_module.keyMask &= ~keyBitPower;    break;
+    case WINDOW_KEY_F9:    pumpkin_module.keyMask &= ~KEY_BITS_SELECT; break;
     case WINDOW_KEY_SHIFT: pumpkin_module.modMask &= ~WINDOW_MOD_SHIFT; key = 0; break;
     case WINDOW_KEY_CTRL:  pumpkin_module.modMask &= ~WINDOW_MOD_CTRL;  key = 0; break;
     case WINDOW_KEY_RCTRL: pumpkin_module.modMask &= ~WINDOW_MOD_RCTRL; key = 0; break;
@@ -3408,6 +3493,11 @@ int pumpkin_sys_event(void) {
   }
 
   if (mutex_lock(mutex) == 0) {
+    if (ev == WINDOW_RESIZE) {
+      pumpkin_resize_desktop(arg1, arg2);
+      ev = 0;
+    }
+
     now = sys_get_clock();
 
     if ((now - pumpkin_module.lastUpdate) > 50000) {

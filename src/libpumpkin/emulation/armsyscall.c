@@ -169,6 +169,16 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           r0 = err;
           }
           break;
+        case 0x15C: {
+          // LocalID DmFindDatabase(const Char *nameP) XXX cardNo parameter usually does not exist
+          // If r0 is 0 the caller passed the old (cardNo, nameP) form instead.
+          uint32_t nameAddr = r0 ? r0 : r1;
+          char *nameP = nameAddr ? (char *)(ram + nameAddr) : NULL;
+          LocalID dbID = nameP ? DmFindDatabase(0, nameP) : 0;
+          debug(DEBUG_TRACE, "ARM", "arm syscall DmFindDatabase(0x%08X [%s]): 0x%08X", nameAddr, nameP ? nameP : "", dbID);
+          r0 = dbID;
+          }
+          break;
         case 0x170: {
           // UInt16 DmFindResource(DmOpenRef dbP, DmResType resType, DmResID resID, MemHandle resH)
           DmOpenRef dbP = r0 ? (DmOpenRef)(ram + r0) : NULL;
@@ -863,11 +873,12 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           r0 = TimGetTicksMs();
           //debug(DEBUG_TRACE, "ARM", "arm syscall TimGetTicks(): %u", r0);
           break;
-        case 0x92C:
+        case 0x92C: {
           // void TimSecondsToDateTime(UInt32 seconds, DateTimeType *dateTimeP)
           DateTimeType *dateTimeP = (DateTimeType *)(ram + r1);
           TimSecondsToDateTime(r0, dateTimeP);
           debug(DEBUG_TRACE, "ARM", "arm syscall TimSecondsToDateTime(%u, 0x%08X)", r0, r1);
+          }
           break;
         case 0xA40: {
           // Err VFSDirEntryEnumerate(FileRef dirRef, UInt32 *dirEntryIteratorP, FileInfoType *infoP)
@@ -1103,12 +1114,13 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           r0 = r;
           }
           break;
-        case 0xB70:
+        case 0xB70: {
           // void WinGetDisplayExtent(Coord *extentX, Coord *extentY)
           Coord *extentX = r0 ? (Coord *)(ram + r0) : NULL;
           Coord *extentY = r1 ? (Coord *)(ram + r1) : NULL;
           WinGetDisplayExtent(extentX, extentY);
           debug(DEBUG_TRACE, "ARM", "arm syscall WinGetDisplayExtent(0x%08X, 0x%08X)", r0, r1);
+          }
           break;
         case 0xB74: {
           // WinHandle WinGetDisplayWindow(void)

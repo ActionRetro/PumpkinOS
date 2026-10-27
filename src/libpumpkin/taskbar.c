@@ -54,6 +54,8 @@ struct taskbar_t {
   UInt16 density;
   UInt32 width, height, usedWidth, baseClockWidth, clockWidth;
   UInt32 x, y;
+  UInt32 newWidth;      // pending width, applied by taskbar_update (owner thread)
+  Boolean textureStale; // texture must be recreated by taskbar_draw (render thread)
   taskbar_task_t tasks[MAX_TASKS];
   taskbar_widget_t widgets[MAX_WIDGETS];
   UInt32 num_tasks, num_widgets;
@@ -102,6 +104,56 @@ static void draw_separator(taskbar_t *tb, Coord x) {
   WinPaintLine(x, 0, x, tb->height - 1);
 }
 
+static void recalc_space(taskbar_t *tb);
+
+// Rebuilds the offscreen drawing buffers at the pending width. Must run on
+// the thread that created the taskbar (it uses Palm OS window calls).
+static void taskbar_apply_resize(taskbar_t *tb) {
+  surface_t *surface;
+  WinHandle wh;
+  UInt16 prevCoordSys, i;
+  Err err;
+
+  if (tb->newWidth == 0 || tb->newWidth == tb->width) {
+    tb->newWidth = 0;
+    return;
+  }
+
+  if ((surface = surface_create(tb->newWidth, tb->height, tb->surface->encoding)) != NULL) {
+    prevCoordSys = WinSetCoordinateSystem(tb->density == kDensityDouble ? kCoordinatesDouble : kCoordinatesStandard);
+    if ((wh = WinCreateOffscreenWindow(tb->newWidth, tb->height, nativeFormat, &err)) != NULL) {
+      WinDeleteWindow(tb->wh, false);
+      surface_destroy(tb->surface);
+      tb->wh = wh;
+      tb->bmp = WinGetBitmap(wh);
+      tb->surface = surface;
+      tb->width = tb->newWidth;
+      tb->textureStale = true;
+      tb->usedWidth = 0;
+      for (i = 0; i < tb->num_tasks; i++) {
+        tb->usedWidth += calc_task_width(tb, i);
+      }
+      recalc_space(tb);
+    } else {
+      surface_destroy(surface);
+    }
+    WinSetCoordinateSystem(prevCoordSys);
+  }
+  tb->newWidth = 0;
+}
+
+void taskbar_resize(taskbar_t *tb, uint32_t x, uint32_t y, uint32_t width) {
+  if (tb) {
+    tb->x = x;
+    tb->y = y;
+    tb->newWidth = width;
+  }
+}
+
+int taskbar_resize_pending(taskbar_t *tb) {
+  return tb && tb->newWidth != 0;
+}
+
 void taskbar_update(taskbar_t *tb) {
   WinHandle oldDrawWindow;
   IndexedColorType oldBackColor, oldForeColor, oldTextColor;
@@ -114,6 +166,8 @@ void taskbar_update(taskbar_t *tb) {
   UInt32 t, tf, nameHeight;
   Coord x0, x, y;
   char buf[dmDBNameLength];
+
+  taskbar_apply_resize(tb);
 
   prevCoordSys = WinSetCoordinateSystem(tb->density == kDensityDouble ? kCoordinatesDouble : kCoordinatesStandard);
   oldDrawWindow = WinSetDrawWindow(tb->wh);
@@ -361,6 +415,12 @@ void taskbar_remove(taskbar_t *tb, LocalID dbID) {
 void taskbar_draw(taskbar_t *tb) {
   uint8_t *raw;
   int len;
+
+  if (tb->textureStale) {
+    if (tb->texture) tb->wp->destroy_texture(tb->w, tb->texture);
+    tb->texture = NULL;
+    tb->textureStale = false;
+  }
 
   if (tb->texture == NULL) {
     tb->texture = tb->wp->create_texture(tb->w, tb->width, tb->height);

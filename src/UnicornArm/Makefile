@@ -40,6 +40,15 @@ UNICORN_LIB=-L$(UNICORN)/bin -lunicorn
 endif
 endif
 
+ifeq ($(OSNAME),Darwin)
+ifeq ($(UNICORN),)
+$(error Missing UNICORN parameter (UNICORN must point to your Unicorn root directory))
+else
+UNICORN_INC=-I$(UNICORN)/include
+UNICORN_LIB=$(UNICORN)/build/libunicorn.a
+endif
+endif
+
 ifeq ($(OSNAME),Haiku)
 ifeq ($(UNICORN),)
 $(error Missing UNICORN parameter (UNICORN must point to your Unicorn root directory))

@@ -45,7 +45,10 @@
 #include <sys/select.h>
 #include <sys/statvfs.h>
 #else
-#if !defined(HAIKU)
+#if defined(DARWIN)
+#include <sys/param.h>
+#include <sys/mount.h>
+#elif !defined(HAIKU)
 #include <sys/syscall.h>
 #include <sys/vfs.h>
 #endif
@@ -546,6 +549,11 @@ uint32_t sys_get_tid(void) {
   thread_id id = find_thread(NULL);
   return id;
 #endif
+#if defined(DARWIN)
+  uint64_t tid = 0;
+  pthread_threadid_np(NULL, &tid);
+  return (uint32_t)tid;
+#endif
 #if defined(KERNEL)
   return 0;
 #endif
@@ -683,7 +691,7 @@ int sys_rewinddir(sys_dir_t *dir) {
         r = 0;
       }
     }
-#elif defined(LINUX)
+#elif defined(LINUX) || defined(DARWIN)
     rewinddir(dir->dir);
     r = 0;
 #endif
@@ -1529,7 +1537,7 @@ int sys_statfs(const char *pathname, sys_statfs_t *st) {
     r = 0;
   }
 #endif
-#if defined(LINUX) || defined(EMSCRIPTEN)
+#if defined(LINUX) || defined(EMSCRIPTEN) || defined(DARWIN)
   struct statfs sb;
 
   if (statfs(pathname, &sb) == 0) {
@@ -2099,7 +2107,7 @@ uint64_t sys_time(void) {
 }
 
 #ifndef WINDOWS
-#if _POSIX_TIMERS > 0
+#if _POSIX_TIMERS > 0 || defined(DARWIN)
 static int64_t gettime(int type) {
   struct timespec tp;
   int64_t ts = -1;
@@ -2125,6 +2133,8 @@ int64_t sys_get_clock(void) {
   ticks.QuadPart *= 1000000;
   ticks.QuadPart /= ticks_per_second.QuadPart;
   ts = ticks.QuadPart;
+#elif defined(DARWIN)
+  ts = gettime(CLOCK_MONOTONIC_RAW);
 #elif defined(EMSCRIPTEN) || defined(HAIKU)
   ts = gettime(CLOCK_MONOTONIC);
 #else
@@ -2142,7 +2152,7 @@ int sys_get_clock_ts(sys_timespec_t *ts) {
   struct timespec t;
   int r;
 
-#if WINDOWS
+#if WINDOWS || defined(DARWIN)
   r = my_clock_gettime(CLOCK_REALTIME, &t);
 #else
 #if _POSIX_TIMERS > 0
@@ -2170,7 +2180,7 @@ int64_t sys_get_process_time(void) {
     debug(DEBUG_ERROR, "SYS", "GetProcessTimes failed");
   }
 #else
-#if defined(LINUX)
+#if defined(LINUX) || defined(DARWIN)
   ts = gettime(CLOCK_PROCESS_CPUTIME_ID);
 #else
   debug(DEBUG_ERROR, "SYS", "CLOCK_PROCESS_CPUTIME_ID is not implemented");
@@ -2191,7 +2201,7 @@ int64_t sys_get_thread_time(void) {
     debug(DEBUG_ERROR, "SYS", "GetThreadTimes failed");
   }
 #else
-#if defined(LINUX)
+#if defined(LINUX) || defined(DARWIN)
   ts = gettime(CLOCK_THREAD_CPUTIME_ID);
 #else
   debug(DEBUG_ERROR, "SYS", "CLOCK_THREAD_CPUTIME_ID is not implemented");
@@ -2207,6 +2217,9 @@ int sys_set_thread_name(char *name) {
   extern int pthread_setname_np (pthread_t __target_thread, const char *__name);
 #endif
   pthread_setname_np(pthread_self(), name);
+#endif
+#if defined(DARWIN)
+  pthread_setname_np(name);
 #endif
   return 0;
 }

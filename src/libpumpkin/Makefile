@@ -84,7 +84,7 @@ PROGRAM=$(BIN)/libpumpkin$(SOEXT)
 OBJS=$(SOURCE:%.c=%.o)
 $(PROGRAM): $(OBJS)
 	@echo Linking libpumpkin$(SOEXT)
-	@$(CC) -shared -o $(PROGRAM) $(OBJS) $(EXTLIBS) -L$(BIN) -lpit -lm
+	@$(CC) $(SHARED) -o $(PROGRAM) $(OBJS) $(EXTLIBS) -L$(BIN) -lpit -lm
 	@$(STRIP) $(PROGRAM)
 
 emulation/systrap.o: emulation/systrap.c emulation/sc_case.c

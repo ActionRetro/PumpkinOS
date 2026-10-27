@@ -41,7 +41,7 @@ $(DLIB): $(PROGRAM).dlib
 
 $(PROGRAM).dlib: $(OBJS) $(STUBS_OPT)
 	@echo Linking $(PROGRAM).dlib
-	@$(CC) -shared -o $(PROGRAM).dlib $(OBJS) $(STUBS_OPT) $(LIBS)
+	@$(CC) $(SHARED) -o $(PROGRAM).dlib $(OBJS) $(STUBS_OPT) $(LIBS)
 
 $(STUBS_OPT): $(STUBS).c
 	@echo Compiling $<

@@ -354,7 +354,11 @@ static int map_key(libsdl_window_t *window, SDL_Event *ev) {
           case SDLK_PAGEUP: key = WINDOW_KEY_PGUP; break;
           case SDLK_PAGEDOWN: key = WINDOW_KEY_PGDOWN; break;
           case SDLK_HOME: key = WINDOW_KEY_HOME; break;
+#if defined(DARWIN)
+          case SDLK_END: key = WINDOW_KEY_F9; break; // End is the 5-way Select button
+#else
           case SDLK_END: key = WINDOW_KEY_END; break;
+#endif
           case SDLK_INSERT: key = WINDOW_KEY_INS; break;
           case SDLK_F1: key = WINDOW_KEY_F1; break;
           case SDLK_F2: key = WINDOW_KEY_F2; break;
@@ -460,6 +464,20 @@ static int libsdl_event2(libsdl_window_t *window, int wait, int *arg1, int *arg2
           case SDL_WINDOWEVENT_CLOSE:
             r = -1;
             break;
+#if defined(DARWIN)
+          case SDL_WINDOWEVENT_SIZE_CHANGED:
+            // draw 1:1 at the new size and let PumpkinOS resize its desktop
+            window->width = ev.window.data1;
+            window->height = ev.window.data2;
+            SDL_RenderSetLogicalSize(window->renderer, window->width, window->height);
+            *arg1 = window->width;
+            *arg2 = window->height;
+            r = WINDOW_RESIZE;
+            break;
+          case SDL_WINDOWEVENT_EXPOSED:
+            r = WINDOW_EXPOSE;
+            break;
+#endif
           default:
             break;
         }
@@ -582,7 +600,11 @@ static int libsdl_event(libsdl_window_t *window, int wait, int remove, int *ekey
                 case SDLK_PAGEUP: key = WINDOW_KEY_PGUP; break;
                 case SDLK_PAGEDOWN: key = WINDOW_KEY_PGDOWN; break;
                 case SDLK_HOME: key = WINDOW_KEY_HOME; break;
+#if defined(DARWIN)
+                case SDLK_END: key = WINDOW_KEY_F9; break; // End is the 5-way Select button
+#else
                 case SDLK_END: key = WINDOW_KEY_END; break;
+#endif
                 case SDLK_F1: key = WINDOW_KEY_F1; break;
                 case SDLK_F2: key = WINDOW_KEY_F2; break;
                 case SDLK_F3: key = WINDOW_KEY_F3; break;
@@ -714,6 +736,12 @@ static int libsdl_video_setup(libsdl_window_t *window) {
   w = window->width;
   h = window->height;
 
+#if defined(DARWIN)
+  // macOS: always start as a normal resizable window; native fullscreen is
+  // entered below (and toggled by the green button). Resizes are reported
+  // to PumpkinOS as WINDOW_RESIZE, which resizes the desktop to match.
+  c = SDL_WINDOWPOS_CENTERED;
+#else
   if (window->fullscreen) {
     c = 0;
   } else {
@@ -721,6 +749,7 @@ static int libsdl_video_setup(libsdl_window_t *window) {
     w *= window->xfactor;
     h *= window->yfactor;
   }
+#endif
 
   i = -1;
 
@@ -742,7 +771,11 @@ static int libsdl_video_setup(libsdl_window_t *window) {
   }
 
   debug(DEBUG_INFO, "SDL", "creating window (%d x %d) fullscreen %d", w, h, window->fullscreen);
+#if defined(DARWIN)
+  window->window = SDL_CreateWindow("", c, c, w, h, SDL_WINDOW_RESIZABLE);
+#else
   window->window = SDL_CreateWindow("", c, c, w, h, window->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+#endif
   if (window->window == NULL) {
     debug(DEBUG_ERROR, "SDL", "SDL_CreateWindow failed: %s", SDL_GetError());
     return -1;
@@ -770,6 +803,14 @@ static int libsdl_video_setup(libsdl_window_t *window) {
   }
   libsdl_render_info("using", &info);
 
+#if defined(DARWIN)
+  // Draw 1:1; the size follows the window (see SDL_WINDOWEVENT_SIZE_CHANGED).
+  SDL_RenderSetLogicalSize(window->renderer, w, h);
+  SDL_SetWindowMinimumSize(window->window, 400, 360);
+  if (window->fullscreen) {
+    SDL_SetWindowFullscreen(window->window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+  }
+#else
   if (window->fullscreen) {
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     SDL_RenderSetLogicalSize(window->renderer, w, h);
@@ -781,6 +822,7 @@ static int libsdl_video_setup(libsdl_window_t *window) {
       SDL_RenderSetLogicalSize(window->renderer, w, h);
     }
   }
+#endif
 
   SDL_SetRenderDrawBlendMode(window->renderer, SDL_BLENDMODE_BLEND);
 

@@ -14,7 +14,7 @@ $(DLIB): $(PROGRAM).dlib
 	cp $(PROGRAM).dlib $(DLIB)
 
 $(PROGRAM).dlib: $(OBJS)
-	$(CC) -shared -o $(PROGRAM).dlib $(OBJS) -L$(BIN) -lpumpkin -lpit -lm
+	$(CC) $(SHARED) -o $(PROGRAM).dlib $(OBJS) -L$(BIN) -lpumpkin -lpit -lm
 
 res: resource.rcp test.dat
 	$(PILRC) resource.rcp; touch res
