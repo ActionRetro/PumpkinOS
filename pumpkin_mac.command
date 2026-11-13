@@ -1,6 +1,6 @@
 #!/bin/sh
 # macOS launcher. Runs fullscreen by default (Cmd+Q to quit).
-# Use "./pumpkin_mac.sh --window" to start in a 704x416 window instead.
+# Use "./pumpkin_mac.command --window" to start in a 704x416 window instead.
 # The green titlebar button toggles fullscreen either way.
 cd "$(dirname "$0")"
 if [ "$1" = "--window" ]; then
