@@ -2228,7 +2228,6 @@ static emu_state_t *emupalmos_new(void) {
 
 static void emupalmos_destroy(emu_state_t *state) {
   if (state) {
-    if (state->istate) sys_free(state->istate);
 #ifdef ARMEMU
     uint8_t *ram = pumpkin_heap_base();
     state->istate->armp->armFinish(state->arm);
@@ -2242,6 +2241,8 @@ static void emupalmos_destroy(emu_state_t *state) {
     pumpkin_heap_free(state->istate->armEmulState, "emulState");
     pumpkin_heap_free(state->istate->armStack, "stack");
 #endif
+    // freed last: the ARM cleanup above still reads from istate
+    if (state->istate) sys_free(state->istate);
     sys_free(state);
   }
 }
