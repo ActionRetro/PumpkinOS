@@ -307,6 +307,7 @@
       break;
     case sysTrapDmDetachRecord:
     case sysTrapDmDetachResource:
+    case sysTrapDmAttachResource:
     case sysTrapDmSearchResource:
     case sysTrapDmGetNextDatabaseByTypeCreator:
     case sysTrapDmInsertionSort:
