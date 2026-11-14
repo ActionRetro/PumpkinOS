@@ -2634,15 +2634,6 @@ static Boolean WidgetDialogEventHandler(EventType *event) {
   return handled;
 }
 
-static void FreeTitle(FormType *frm) {
-  char *title;
-        
-  if ((title = (char *)FrmGetTitle(frm)) != NULL) {
-    MemPtrFree(title);
-    FrmSetTitle(frm, NULL);
-  }
-}
-
 static Boolean MainFormHandleEvent(EventPtr event) {
   launcher_data_t *data;
   FormType *frm;
@@ -2671,7 +2662,6 @@ static Boolean MainFormHandleEvent(EventPtr event) {
     case frmUpdateEvent:
       frm = FrmGetActiveForm();
       FrmSetMenu(frm, pumpkin_get_mode() == 0 ? MainMenu : ReducedMainMenu);
-      FreeTitle(frm);
       gadIndex = FrmGetObjectIndex(frm, iconsGad);
       sclIndex = FrmGetObjectIndex(frm, iconsScl);
       if (event->eType == frmOpenEvent) {
