@@ -55,3 +55,8 @@ src/libemulation/tools/zmac/zmac.c
 !/lib32/*
 !/vfs/app_card/PALM/Programs/Command/
 !/src/plucker/fonts/*
+
+# macOS
+.DS_Store
+run.out
+/deps

@@ -42,8 +42,40 @@ Go to the source directory of the PumpkinOS repository you have just cloned and 
 
 If everything goes well, you will have a pumpkin executable in the root directory, some dynamic libraries in the bin directory, and some PRC files in the vfs/app_install directory.
 
+### Building on macOS
+macOS builds use clang and SDL2. Install the Xcode command line tools if you do not have them yet:
+
+    xcode-select --install
+
+Then get SDL2. With Homebrew:
+
+    brew install sdl2
+
+Without Homebrew, build SDL2 2.x from source (https://github.com/libsdl-org/SDL/releases) into your home directory:
+
+    ./configure --prefix=$HOME/.local --disable-static
+    make && make install
+
+To run ARM applications you also need Unicorn, built with only the ARM target. Download the Unicorn 2.x source
+(https://github.com/unicorn-engine/unicorn/releases) into a deps directory inside the repository and build it with CMake:
+
+    cd deps/unicorn-2.1.4
+    cmake -B build -DUNICORN_ARCH=arm -DCMAKE_BUILD_TYPE=Release -DUNICORN_BUILD_TESTS=OFF
+    cmake --build build
+
+Then build PumpkinOS from the repository root:
+
+    ./build_mac.sh
+
+The script finds SDL2 through sdl2-config (on your PATH or in ~/.local/bin) and Unicorn in deps/unicorn-2.1.4.
+Set SDL2_CONFIG or UNICORN to use other locations. Without Unicorn, everything except ARM applications still works.
+
 ## Running
 On 64-bits Windows, run pumpkin.bat. On Linux or WSL2, run pumpkin.sh. PumpkinOS will open on a new window.
+
+On macOS, double-click pumpkin_mac.command to run PumpkinOS fullscreen, or pumpkin_mac_window.command to start in a window.
+The green titlebar button switches between the two, and the PumpkinOS desktop resizes to fit. Cmd+Q quits.
+The End key acts as the 5-way Select button.
 
 When you run PumpkinOS, all PRCs inside vfs/app_install will be removed and expanded into folders inside vfs/app_storage.
 Please keep in mind that everything is pretty much experimental at this stage, so expect a few issues here and there.
