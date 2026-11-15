@@ -244,7 +244,8 @@ Err FileSeek(FileHand stream, Int32 offset, FileOriginEnum origin) {
         return fileErrInvalidParam;
     }
 
-    if (StoFileSeek(f->dbRef, offset, whence) == 0) {
+    // StoFileSeek returns the new position, or -1 on error
+    if (StoFileSeek(f->dbRef, offset, whence) != -1) {
       err = errNone;
     }
   }

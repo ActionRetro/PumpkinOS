@@ -355,7 +355,8 @@ static uint32_t vfs_local_seek(vfs_fpriv_t *fpriv, uint32_t pos, int fromend) {
   }
 
   if (fpriv && fpriv->fd) {
-    r = sys_seek(fpriv->fd, pos, whence);
+    // relative seeks can go backwards: pos carries a signed 32-bit offset
+    r = sys_seek(fpriv->fd, whence == SYS_SEEK_SET ? (int64_t)pos : (int64_t)(int32_t)pos, whence);
   }
 
   return r;
