@@ -179,8 +179,37 @@ void palmos_intltrap(uint32_t sp, uint16_t idx, uint32_t sel) {
     //case intlTxtGetTruncationOffset:
     //case intlIntlGetRoutineAddress:
     //case intlIntlHandleEvent:
+    case intlTxtConvertEncoding: {
+      // Err TxtConvertEncoding(Boolean newConversion, TxtConvertStateType *ioStateP, const Char *srcTextP, UInt16 *ioSrcBytes, CharEncodingType srcEncoding,
+      //   Char *dstTextP, UInt16 *ioDstBytes, CharEncodingType dstEncoding, const Char *substitutionStr, UInt16 substitutionLen)
+      uint8_t newConversion = ARG8;
+      uint32_t ioStateP = ARG32;
+      uint32_t srcTextP = ARG32;
+      uint32_t ioSrcBytesP = ARG32;
+      uint8_t srcEncoding = ARG8;
+      uint32_t dstTextP = ARG32;
+      uint32_t ioDstBytesP = ARG32;
+      uint8_t dstEncoding = ARG8;
+      uint32_t substitutionStrP = ARG32;
+      uint16_t substitutionLen = ARG16;
+      TxtConvertStateType *ioState = emupalmos_trap_sel_in(ioStateP, sysTrapIntlDispatch, sel, 1);
+      char *srcText = emupalmos_trap_sel_in(srcTextP, sysTrapIntlDispatch, sel, 2);
+      emupalmos_trap_sel_in(ioSrcBytesP, sysTrapIntlDispatch, sel, 3);
+      char *dstText = emupalmos_trap_sel_in(dstTextP, sysTrapIntlDispatch, sel, 5);
+      emupalmos_trap_sel_in(ioDstBytesP, sysTrapIntlDispatch, sel, 6);
+      char *substitutionStr = emupalmos_trap_sel_in(substitutionStrP, sysTrapIntlDispatch, sel, 8);
+      UInt16 ioSrcBytes = ioSrcBytesP ? m68k_read_memory_16(ioSrcBytesP) : 0;
+      UInt16 ioDstBytes = ioDstBytesP ? m68k_read_memory_16(ioDstBytesP) : 0;
+      Err res = TxtConvertEncoding(newConversion, ioState, srcText, ioSrcBytesP ? &ioSrcBytes : NULL, srcEncoding,
+        dstText, ioDstBytesP ? &ioDstBytes : NULL, dstEncoding, substitutionStr, substitutionLen);
+      if (ioSrcBytesP) m68k_write_memory_16(ioSrcBytesP, ioSrcBytes);
+      if (ioDstBytesP) m68k_write_memory_16(ioDstBytesP, ioDstBytes);
+      debug(DEBUG_TRACE, "EmuPalmOS", "TxtConvertEncoding(%d, 0x%08X, 0x%08X, 0x%08X [%d], %d, 0x%08X, 0x%08X [%d], %d, 0x%08X, %d): 0x%04X",
+        newConversion, ioStateP, srcTextP, ioSrcBytesP, ioSrcBytes, srcEncoding, dstTextP, ioDstBytesP, ioDstBytes, dstEncoding, substitutionStrP, substitutionLen, res);
+      m68k_set_reg(M68K_REG_D0, res);
+      }
+      break;
     //case intlTxtConvertEncodingV35:
-    //case intlTxtConvertEncoding:
     //case intlIntlSetRoutineAddress:
     //case intlTxtGetWordWrapOffset:
     //case intlTxtNameToEncoding:

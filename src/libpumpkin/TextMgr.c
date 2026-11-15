@@ -333,9 +333,189 @@ Err TxtTransliterate(const Char *inSrcText, UInt16 inSrcLength, Char *outDstText
   return 0;
 }
 
+// Unicode code points for bytes 0x80-0x9F in CP1252 (0 = undefined).
+// Palm Latin is CP1252 plus a few Palm glyphs in the undefined slots.
+static const UInt16 cp1252_80[32] = {
+  0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+  0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0,      0x017D, 0,
+  0,      0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+  0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0,      0x017E, 0x0178
+};
+
+// Decodes one character at src. Returns the number of bytes used, 0 if the
+// sequence is incomplete, or -1 if it is malformed.
+static Int16 conv_decode(CharEncodingType enc, const UInt8 *src, UInt16 len, UInt32 *cp) {
+  UInt16 n, i;
+  UInt32 c;
+
+  switch (enc) {
+    case charEncodingAscii:
+      if (src[0] >= 0x80) return -1;
+      *cp = src[0];
+      return 1;
+    case charEncodingISO8859_1:
+      *cp = src[0];
+      return 1;
+    case charEncodingPalmLatin:
+    case charEncodingCP1252:
+      *cp = src[0];
+      if (src[0] >= 0x80 && src[0] < 0xA0 && cp1252_80[src[0] - 0x80]) {
+        *cp = cp1252_80[src[0] - 0x80];
+      }
+      return 1;
+    case charEncodingUTF8:
+      c = src[0];
+      if (c < 0x80) { *cp = c; return 1; }
+      else if ((c & 0xE0) == 0xC0) { n = 2; c &= 0x1F; }
+      else if ((c & 0xF0) == 0xE0) { n = 3; c &= 0x0F; }
+      else if ((c & 0xF8) == 0xF0) { n = 4; c &= 0x07; }
+      else return -1;
+      for (i = 1; i < n; i++) {
+        if (i >= len) return 0;
+        if ((src[i] & 0xC0) != 0x80) return -1;
+        c = (c << 6) | (src[i] & 0x3F);
+      }
+      *cp = c;
+      return n;
+    case charEncodingUCS2:
+    case charEncodingUTF16BE:
+      if (len < 2) return 0;
+      c = (src[0] << 8) | src[1];
+      if (enc == charEncodingUTF16BE && c >= 0xD800 && c < 0xDC00) {
+        if (len < 4) return 0;
+        i = (src[2] << 8) | src[3];
+        if (i < 0xDC00 || i >= 0xE000) return -1;
+        *cp = 0x10000 + ((c - 0xD800) << 10) + (i - 0xDC00);
+        return 4;
+      }
+      *cp = c;
+      return 2;
+  }
+
+  return -1;
+}
+
+// Encodes cp into buf (at least 4 bytes). Returns the number of bytes, or -1
+// if the encoding has no mapping for it.
+static Int16 conv_encode(CharEncodingType enc, UInt32 cp, UInt8 *buf) {
+  UInt16 i;
+
+  switch (enc) {
+    case charEncodingAscii:
+      if (cp >= 0x80) return -1;
+      buf[0] = cp;
+      return 1;
+    case charEncodingISO8859_1:
+      if (cp >= 0x100) return -1;
+      buf[0] = cp;
+      return 1;
+    case charEncodingPalmLatin:
+    case charEncodingCP1252:
+      if (cp < 0x80 || (cp >= 0xA0 && cp < 0x100)) {
+        buf[0] = cp;
+        return 1;
+      }
+      for (i = 0; i < 32; i++) {
+        if (cp1252_80[i] == cp) {
+          buf[0] = 0x80 + i;
+          return 1;
+        }
+      }
+      // undefined CP1252 slots (Palm glyphs) round-trip as themselves
+      if (cp >= 0x80 && cp < 0xA0 && cp1252_80[cp - 0x80] == 0) {
+        buf[0] = cp;
+        return 1;
+      }
+      return -1;
+    case charEncodingUTF8:
+      if (cp < 0x80) { buf[0] = cp; return 1; }
+      if (cp < 0x800) { buf[0] = 0xC0 | (cp >> 6); buf[1] = 0x80 | (cp & 0x3F); return 2; }
+      if (cp < 0x10000) { buf[0] = 0xE0 | (cp >> 12); buf[1] = 0x80 | ((cp >> 6) & 0x3F); buf[2] = 0x80 | (cp & 0x3F); return 3; }
+      if (cp < 0x110000) { buf[0] = 0xF0 | (cp >> 18); buf[1] = 0x80 | ((cp >> 12) & 0x3F); buf[2] = 0x80 | ((cp >> 6) & 0x3F); buf[3] = 0x80 | (cp & 0x3F); return 4; }
+      return -1;
+    case charEncodingUCS2:
+      if (cp >= 0x10000) return -1;
+      buf[0] = cp >> 8;
+      buf[1] = cp;
+      return 2;
+    case charEncodingUTF16BE:
+      if (cp < 0x10000) {
+        buf[0] = cp >> 8;
+        buf[1] = cp;
+        return 2;
+      }
+      if (cp >= 0x110000) return -1;
+      cp -= 0x10000;
+      buf[0] = (0xD800 | (cp >> 10)) >> 8;
+      buf[1] = 0xD800 | (cp >> 10);
+      buf[2] = (0xDC00 | (cp & 0x3FF)) >> 8;
+      buf[3] = 0xDC00 | (cp & 0x3FF);
+      return 4;
+  }
+
+  return -1;
+}
+
+static Boolean conv_supported(CharEncodingType enc) {
+  UInt32 cp;
+  UInt8 b[2] = { 0, 0 };
+  return conv_decode(enc, b, 2, &cp) > 0;
+}
+
+// Stateless encodings only, so ioStateP and newConversion are not used.
 Err TxtConvertEncoding(Boolean newConversion, TxtConvertStateType *ioStateP, const Char *srcTextP, UInt16 *ioSrcBytes, CharEncodingType srcEncoding, Char *dstTextP, UInt16 *ioDstBytes, CharEncodingType dstEncoding, const Char *substitutionStr, UInt16 substitutionLen) {
-  debug(DEBUG_ERROR, PALMOS_MODULE, "TxtConvertEncoding not implemented");
-  return 0;
+  const UInt8 *src = (const UInt8 *)srcTextP;
+  UInt8 *dst = (UInt8 *)dstTextP;
+  UInt16 srcLen, dstMax, s, d;
+  UInt8 buf[4];
+  const UInt8 *out;
+  Int16 n, m;
+  UInt32 cp;
+  Err err = errNone;
+
+  if (ioSrcBytes == NULL || ioDstBytes == NULL) return sysErrParamErr;
+  srcLen = srcTextP ? *ioSrcBytes : 0;
+  dstMax = dst ? *ioDstBytes : 0xFFFF;
+
+  if (!conv_supported(srcEncoding) || !conv_supported(dstEncoding)) {
+    debug(DEBUG_ERROR, PALMOS_MODULE, "TxtConvertEncoding unsupported encoding %d -> %d", srcEncoding, dstEncoding);
+    *ioSrcBytes = 0;
+    *ioDstBytes = 0;
+    return txtErrUnknownEncoding;
+  }
+
+  for (s = 0, d = 0; s < srcLen;) {
+    n = conv_decode(srcEncoding, src + s, srcLen - s, &cp);
+    if (n == 0) {
+      err = txtErrConvertUnderflow;
+      break;
+    }
+    m = n > 0 ? conv_encode(dstEncoding, cp, buf) : -1;
+    if (m > 0) {
+      out = buf;
+    } else if (substitutionStr) {
+      out = (const UInt8 *)substitutionStr;
+      m = substitutionLen;
+      // skip the bad character (one byte if malformed) and keep going
+      if (n < 0) n = 1;
+      if (err == errNone) err = txtErrNoCharMapping;
+    } else {
+      err = n < 0 ? txtErrMalformedText : txtErrNoCharMapping;
+      break;
+    }
+    if (d + m > dstMax) {
+      err = txtErrConvertOverflow;
+      break;
+    }
+    if (dst) MemMove(dst + d, out, m);
+    d += m;
+    s += n;
+  }
+
+  *ioSrcBytes = s;
+  *ioDstBytes = d;
+
+  return err;
 }
 
 Boolean TxtWordBounds(const Char *inText, UInt32 inLength, UInt32 inOffset, UInt32 *outStart, UInt32 *outEnd) {
