@@ -23,6 +23,9 @@
 #define STO_TYPE_RES  3
 #define STO_TYPE_FILE 5
 
+// returned by StoLockForReading/StoLockForWriting when another task holds the lock
+#define STO_LOCK_BUSY -2
+
 #define HANDLES_PER_PAGE 1024
 
 #define STO_FILE_ELEMENT 1
@@ -526,6 +529,7 @@ static int StoLockForReading(storage_t *sto, storage_db_t *db) {
   if (StoGetFileLocks(sto, db, &read_locks, &write_locks) == 0) {
     if (db->writeCount < write_locks) {
       debug(DEBUG_ERROR, "STOR", "StoLockForReading file \"%s\" already locked for writing (other)", db->name);
+      r = STO_LOCK_BUSY;
     } else {
       if (db->writeCount > 0) {
         debug(DEBUG_INFO, "STOR", "StoLockForReading file \"%s\" already locked for writing (own)", db->name);
@@ -569,8 +573,10 @@ static int StoLockForWriting(storage_t *sto, storage_db_t *db) {
   if (StoGetFileLocks(sto, db, &read_locks, &write_locks) == 0) {
     if (db->readCount < read_locks) {
       debug(DEBUG_ERROR, "STOR", "StoLockForWriting file \"%s\" already locked for reading (other)", db->name);
+      r = STO_LOCK_BUSY;
     } else if (db->writeCount < write_locks) {
       debug(DEBUG_ERROR, "STOR", "StoLockForWriting file \"%s\" already locked for writing (other)", db->name);
+      r = STO_LOCK_BUSY;
     } else {
       if (db->readCount > 0) {
         debug(DEBUG_INFO, "STOR", "StoLockForWriting file \"%s\" already locked for reading (own)", db->name);
@@ -1606,6 +1612,7 @@ static DmOpenRef DmOpenDatabaseOverlay(UInt16 cardNo, LocalID dbID, UInt16 mode,
   storage_t *sto = (storage_t *)pumpkin_get_local_storage(sto_key);
   storage_db_t *db;
   Boolean ok;
+  int r, tries;
   LmLocaleType locale;
   DmOpenType *first, *dbRef = NULL;
   LocalID overlayID;
@@ -1645,14 +1652,28 @@ static DmOpenRef DmOpenDatabaseOverlay(UInt16 cardNo, LocalID dbID, UInt16 mode,
       }
 
       if ((dbRef = pumpkin_heap_alloc(sizeof(DmOpenType), "dbRef")) != NULL) {
-        if (mode & dmModeWrite) {
-          ok = StoLockForWriting(sto, db) == 0;
-        } else if (mode & dmModeReadOnly) {
-          ok = StoLockForReading(sto, db) == 0;
-        } else {
-          debug(DEBUG_ERROR, "STOR", "DmOpenDatabase \"%s\" invalid mode 0x%04X", db->name, mode);
-          ok = false;
+        for (tries = 0; ; tries++) {
+          if (mode & dmModeWrite) {
+            r = StoLockForWriting(sto, db);
+          } else if (mode & dmModeReadOnly) {
+            r = StoLockForReading(sto, db);
+          } else {
+            debug(DEBUG_ERROR, "STOR", "DmOpenDatabase \"%s\" invalid mode 0x%04X", db->name, mode);
+            r = -1;
+          }
+          if (r != STO_LOCK_BUSY || tries == 50) break;
+          // Another task holds the lock, usually briefly (e.g. the Launcher
+          // reading app icons after a database was created). Give it up to
+          // 0.5s, releasing the mutex so it can close the database.
+          mutex_unlock(sto->mutex);
+          sys_usleep(10000);
+          mutex_lock(sto->mutex);
+          if (sto->dbs[dbID - DBID_BASE] != db) {
+            r = -1; // deleted meanwhile
+            break;
+          }
         }
+        ok = r == 0;
         if (ok) {
           db->mode = mode;
           dbRef->dbID = dbID;
