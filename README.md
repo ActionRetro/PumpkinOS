@@ -1,3 +1,6 @@
+# PumpkinOS-Mac
+This is a vibe-ported version of PumpkinOS for Mac.
+
 # PumpkinOS
 PumpkinOS is a re-implementation of PalmOS that runs on modern architectures (x86, ARM, etc).
 It is not your average PalmOS emulator (it does NOT require a PalmOS ROM), but it can run m68K PalmOS applications.
