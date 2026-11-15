@@ -179,6 +179,125 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           r0 = dbID;
           }
           break;
+        case 0x12C: {
+          // Err DmDatabaseInfo(LocalID dbID, Char *nameP, UInt16 *attributesP, UInt16 *versionP, UInt32 *crDateP, UInt32 *modDateP,
+          //   UInt32 *bckUpDateP, UInt32 *modNumP, LocalID *appInfoIDP, LocalID *sortInfoIDP, UInt32 *typeP, UInt32 *creatorP)
+          // XXX cardNo parameter usually does not exist. If r0 is 0 the caller passed the old (cardNo, dbID, ...) form instead.
+          // Arguments after the 4th are in 32-bit stack slots.
+          uint32_t a[13], *p;
+          int k;
+          a[0] = r0; a[1] = r1; a[2] = r2; a[3] = r3;
+          for (k = 4; k < 13; k++) a[k] = READ32(sp + (k - 4) * 4);
+          p = r0 ? &a[0] : &a[1];
+          LocalID dbID = p[0];
+          Err err = DmDatabaseInfo(0, dbID,
+            p[1] ? (char *)(ram + p[1]) : NULL,
+            p[2] ? (UInt16 *)(ram + p[2]) : NULL,
+            p[3] ? (UInt16 *)(ram + p[3]) : NULL,
+            p[4] ? (UInt32 *)(ram + p[4]) : NULL,
+            p[5] ? (UInt32 *)(ram + p[5]) : NULL,
+            p[6] ? (UInt32 *)(ram + p[6]) : NULL,
+            p[7] ? (UInt32 *)(ram + p[7]) : NULL,
+            p[8] ? (LocalID *)(ram + p[8]) : NULL,
+            p[9] ? (LocalID *)(ram + p[9]) : NULL,
+            p[10] ? (UInt32 *)(ram + p[10]) : NULL,
+            p[11] ? (UInt32 *)(ram + p[11]) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall DmDatabaseInfo(0x%08X, 0x%08X [%s], ...): %d", dbID, p[1], (p[1] && err == errNone) ? (char *)(ram + p[1]) : "", err);
+          r0 = err;
+          }
+          break;
+        case 0x490: {
+          // Err KeyRates(Boolean set, UInt16 *initDelayP, UInt16 *periodP, UInt16 *doubleTapDelayP, Boolean *queueAheadP)
+          uint32_t queueAheadAddr = READ32(sp);
+          UInt16 *initDelayP = r1 ? (UInt16 *)(ram + r1) : NULL;
+          UInt16 *periodP = r2 ? (UInt16 *)(ram + r2) : NULL;
+          UInt16 *doubleTapDelayP = r3 ? (UInt16 *)(ram + r3) : NULL;
+          Boolean *queueAheadP = queueAheadAddr ? (Boolean *)(ram + queueAheadAddr) : NULL;
+          Err err = KeyRates(r0 != 0, initDelayP, periodP, doubleTapDelayP, queueAheadP);
+          debug(DEBUG_TRACE, "ARM", "arm syscall KeyRates(%d, 0x%08X, 0x%08X, 0x%08X, 0x%08X): %d", r0, r1, r2, r3, queueAheadAddr, err);
+          r0 = err;
+          }
+          break;
+        // File Streaming. A FileHand lives in the PumpkinOS heap, so ARM code sees it as a heap offset.
+        case 0x394: {
+          // Err FileClose(FileHand stream)
+          Err err = FileClose(r0 ? (FileHand)(ram + r0) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileClose(0x%08X): %d", r0, err);
+          r0 = err;
+          }
+          break;
+        case 0x398: {
+          // Err FileControl(FileOpEnum op, FileHand stream, void *valueP, Int32 *valueLenP)
+          Err err = FileControl(r0, r1 ? (FileHand)(ram + r1) : NULL, r2 ? (void *)(ram + r2) : NULL, r3 ? (Int32 *)(ram + r3) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileControl(%d, 0x%08X, 0x%08X, 0x%08X): %d", r0, r1, r2, r3, err);
+          r0 = err;
+          }
+          break;
+        case 0x39C:
+        case 0x3A0: {
+          // Err FileDelete(const Char *nameP)
+          // Err FileDeleteV40(UInt16 cardNo, const Char *nameP)
+          uint32_t nameAddr = function == 0x39C ? r0 : r1;
+          Err err = FileDelete(0, strArg(nameAddr));
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileDelete(0x%08X [%s]): %d", nameAddr, strArg(nameAddr), err);
+          r0 = err;
+          }
+          break;
+        case 0x3A4:
+        case 0x3A8: {
+          // FileHand FileOpen(const Char *nameP, UInt32 type, UInt32 creator, UInt32 openMode, Err *errP)
+          // FileHand FileOpenV40(UInt16 cardNo, const Char *nameP, UInt32 type, UInt32 creator, UInt32 openMode, Err *errP)
+          uint32_t nameAddr, type, creator, openMode, errAddr;
+          if (function == 0x3A4) {
+            nameAddr = r0; type = r1; creator = r2; openMode = r3; errAddr = READ32(sp);
+          } else {
+            nameAddr = r1; type = r2; creator = r3; openMode = READ32(sp); errAddr = READ32(sp + 4);
+          }
+          FileHand f = FileOpen(0, strArg(nameAddr), type, creator, openMode, errAddr ? (Err *)(ram + errAddr) : NULL);
+          r = f ? (uint8_t *)f - ram : 0;
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileOpen(0x%08X [%s], 0x%08X, 0x%08X, 0x%08X, 0x%08X): 0x%08X", nameAddr, strArg(nameAddr), type, creator, openMode, errAddr, r);
+          r0 = r;
+          }
+          break;
+        case 0x3AC: {
+          // Int32 FileReadLow(FileHand stream, void *baseP, Int32 offset, Boolean dataStoreBased, Int32 objSize, Int32 numObj, Err *errP)
+          int32_t objSize = READ32(sp);
+          int32_t numObj = READ32(sp + 4);
+          uint32_t errAddr = READ32(sp + 8);
+          Int32 n = FileReadLow(r0 ? (FileHand)(ram + r0) : NULL, r1 ? (void *)(ram + r1) : NULL, (int32_t)r2, r3 != 0, objSize, numObj, errAddr ? (Err *)(ram + errAddr) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileReadLow(0x%08X, 0x%08X, %d, %d, %d, %d, 0x%08X): %d", r0, r1, r2, r3, objSize, numObj, errAddr, n);
+          r0 = n;
+          }
+          break;
+        case 0x3B0: {
+          // Err FileSeek(FileHand stream, Int32 offset, FileOriginEnum origin)
+          Err err = FileSeek(r0 ? (FileHand)(ram + r0) : NULL, (int32_t)r1, r2);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileSeek(0x%08X, %d, %d): %d", r0, r1, r2, err);
+          r0 = err;
+          }
+          break;
+        case 0x3B4: {
+          // Int32 FileTell(FileHand stream, Int32 *fileSizeP, Err *errP)
+          Int32 pos = FileTell(r0 ? (FileHand)(ram + r0) : NULL, r1 ? (Int32 *)(ram + r1) : NULL, r2 ? (Err *)(ram + r2) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileTell(0x%08X, 0x%08X, 0x%08X): %d", r0, r1, r2, pos);
+          r0 = pos;
+          }
+          break;
+        case 0x3B8: {
+          // Err FileTruncate(FileHand stream, Int32 newSize)
+          Err err = FileTruncate(r0 ? (FileHand)(ram + r0) : NULL, (int32_t)r1);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileTruncate(0x%08X, %d): %d", r0, r1, err);
+          r0 = err;
+          }
+          break;
+        case 0x3BC: {
+          // Int32 FileWrite(FileHand stream, const void *dataP, Int32 objSize, Int32 numObj, Err *errP)
+          uint32_t errAddr = READ32(sp);
+          Int32 n = FileWrite(r0 ? (FileHand)(ram + r0) : NULL, r1 ? (void *)(ram + r1) : NULL, (int32_t)r2, (int32_t)r3, errAddr ? (Err *)(ram + errAddr) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall FileWrite(0x%08X, 0x%08X, %d, %d, 0x%08X): %d", r0, r1, r2, r3, errAddr, n);
+          r0 = n;
+          }
+          break;
         case 0x170: {
           // UInt16 DmFindResource(DmOpenRef dbP, DmResType resType, DmResID resID, MemHandle resH)
           DmOpenRef dbP = r0 ? (DmOpenRef)(ram + r0) : NULL;
@@ -1257,6 +1376,45 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           debug(DEBUG_TRACE, "ARM", "arm syscall WinSetCoordinateSystem(%u): %u", r0, r);
           r0 = r;
           break;
+        case 0xC9C:
+          // void WinScalePoint(PointType *pointP, Boolean ceiling)
+          if (r0) WinScalePoint((PointType *)(ram + r0), r1 != 0);
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinScalePoint(0x%08X, %d)", r0, r1);
+          break;
+        case 0xCA0:
+          // void WinScaleRectangle(RectangleType *rectP)
+          if (r0) WinScaleRectangle((RectangleType *)(ram + r0));
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinScaleRectangle(0x%08X)", r0);
+          break;
+        case 0xCA4: {
+          // Err WinScreenGetAttribute(WinScreenAttrType selector, UInt32 *attrP)
+          Err err = WinScreenGetAttribute(r0, r1 ? (UInt32 *)(ram + r1) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinScreenGetAttribute(%d, 0x%08X): %d", r0, r1, err);
+          r0 = err;
+          }
+          break;
+        case 0xCA8:
+          // void WinUnscalePoint(PointType *pointP, Boolean ceiling)
+          if (r0) WinUnscalePoint((PointType *)(ram + r0), r1 != 0);
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinUnscalePoint(0x%08X, %d)", r0, r1);
+          break;
+        case 0xCAC:
+          // void WinUnscaleRectangle(RectangleType *rectP)
+          if (r0) WinUnscaleRectangle((RectangleType *)(ram + r0));
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinUnscaleRectangle(0x%08X)", r0);
+          break;
+        case 0xCB4:
+          // Coord WinScaleCoord(Coord coord, Boolean ceiling)
+          r = (int32_t)WinScaleCoord((Coord)r0, r1 != 0);
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinScaleCoord(%d, %d): %d", (Coord)r0, r1, (int32_t)r);
+          r0 = r;
+          break;
+        case 0xCB8:
+          // Coord WinUnscaleCoord(Coord coord, Boolean ceiling)
+          r = (int32_t)WinUnscaleCoord((Coord)r0, r1 != 0);
+          debug(DEBUG_TRACE, "ARM", "arm syscall WinUnscaleCoord(%d, %d): %d", (Coord)r0, r1, (int32_t)r);
+          r0 = r;
+          break;
         case 0xD0C: {
           // Err SndStreamCreate(SndStreamRef *channel, SndStreamMode mode, UInt32 samplerate, SndSampleType type,
           //        SndStreamWidth width, SndStreamBufferCallback func, void *userdata, UInt32 buffsize, Boolean armNative)
@@ -1303,6 +1461,61 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           // Err SndStreamSetVolume(SndStreamRef channel, Int32 volume)
           err = SndStreamSetVolume(r0, r1);
           debug(DEBUG_TRACE, "ARM", "arm syscall SndStreamSetVolume(%u, %d): %d", r0, r1, err);
+          r0 = err;
+          }
+          break;
+        case 0xD24: {
+          // Err SndStreamGetVolume(SndStreamRef channel, Int32 *volume)
+          err = SndStreamGetVolume(r0, r1 ? (Int32 *)(ram + r1) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall SndStreamGetVolume(%u, 0x%08X): %d", r0, r1, err);
+          r0 = err;
+          }
+          break;
+        case 0xD50: {
+          // Err SndStreamCreateExtended(SndStreamRef *channel, SndStreamMode mode, SndFormatType format, UInt32 samplerate,
+          //        SndSampleType type, SndStreamWidth width, SndStreamVariableBufferCallback func, void *userdata, UInt32 buffsize, Boolean armNative)
+          SndStreamRef *channel = r0 ? (SndStreamRef *)(ram + r0) : NULL;
+          SndSampleType type = READ32(sp);
+          SndStreamWidth width = READ32(sp + 4);
+          uint32_t addrFunc = READ32(sp + 8);
+          SndStreamVariableBufferCallback func = addrFunc ? (SndStreamVariableBufferCallback)(ram + addrFunc) : NULL;
+          uint32_t addrData = READ32(sp + 12);
+          UInt32 buffsize = READ32(sp + 16);
+          Boolean armNative = READ32(sp + 20) != 0;
+          err = SndStreamCreateEx(channel, r1, r2, r3, type, width, NULL, func, (void *)(ram + addrData), buffsize, armNative, false, true);
+          debug(DEBUG_TRACE, "ARM", "arm syscall SndStreamCreateExtended(0x%08X, %u, %u, %u, %u, %u, 0x%08X, 0x%08X, %u, %u): %d",
+            r0, r1, r2, r3, type, width, addrFunc, addrData, buffsize, armNative, err);
+          r0 = err;
+          }
+          break;
+        case 0x278:
+          // UInt16 ErrAlertCustom(Err errCode, Char *errMsgP, Char *preMsgP, Char *postMsgP)
+          r = ErrAlertCustom(r0, r1 ? (char *)(ram + r1) : NULL, r2 ? (char *)(ram + r2) : NULL, r3 ? (char *)(ram + r3) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall ErrAlertCustom(%d, 0x%08X [%s], 0x%08X, 0x%08X): %u", r0, r1, strArg(r1), r2, r3, r);
+          r0 = r;
+          break;
+        case 0x5F8:
+          // UInt32 PrefGetPreference(SystemPreferencesChoice choice)
+          r = PrefGetPreference(r0);
+          debug(DEBUG_TRACE, "ARM", "arm syscall PrefGetPreference(%u): %u", r0, r);
+          r0 = r;
+          break;
+        case 0x610:
+          // void PrefSetPreference(SystemPreferencesChoice choice, UInt32 value)
+          PrefSetPreference(r0, r1);
+          debug(DEBUG_TRACE, "ARM", "arm syscall PrefSetPreference(%u, %u)", r0, r1);
+          break;
+        case 0xA3C: {
+          // Err VFSDirCreate(UInt16 volRefNum, const Char *dirNameP)
+          err = VFSDirCreate(r0, strArg(r1));
+          debug(DEBUG_TRACE, "ARM", "arm syscall VFSDirCreate(%u, 0x%08X [%s]): %d", r0, r1, strArg(r1), err);
+          r0 = err;
+          }
+          break;
+        case 0xAD8: {
+          // Err VFSVolumeInfo(UInt16 volRefNum, VolumeInfoType *volInfoP) (same struct layout on ARM and host)
+          err = VFSVolumeInfo(r0, r1 ? (VolumeInfoType *)(ram + r1) : NULL);
+          debug(DEBUG_TRACE, "ARM", "arm syscall VFSVolumeInfo(%u, 0x%08X): %d", r0, r1, err);
           r0 = err;
           }
           break;
