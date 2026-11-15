@@ -142,6 +142,10 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           BitmapType *bmp = r0 ? (BitmapType *)(ram + r0) : NULL;
           uint8_t *bits = BmpGetBits(bmp);
           r = bits ? bits - ram : 0;
+          if (bmp && bmp == WinGetBitmap(WinGetDisplayWindow())) {
+            emu_state_t *state = pumpkin_get_local_storage(emu_key);
+            state->armDirectScreen = true;
+          }
           debug(DEBUG_TRACE, "ARM", "arm syscall BmpGetBits(0x%08X): 0x%08X", r0, r);
           r0 = r;
           }
@@ -879,6 +883,22 @@ uint32_t emupalmos_arm_syscall(uint32_t group, uint32_t function, uint32_t r0, u
           break;
         case 0x824:
           // #define SysEventGet(eventP, timeOut) EvtGetEvent((EventType *)eventP, timeOut)
+          {
+            // games poll for events once per frame: show what they drew
+            // straight into the display bitmap, at most ~60 times a second
+            emu_state_t *state = pumpkin_get_local_storage(emu_key);
+            int64_t now = sys_get_clock();
+            if (state->armDirectScreen && now - state->armScreenRefresh >= 16000) {
+              WinHandle display = WinGetDisplayWindow();
+              Coord w, h;
+              BmpGetDimensions(WinGetBitmap(display), &w, &h, NULL);
+              // the region end is what flags the screen for display
+              pumpkin_dirty_region_mode(dirtyRegionBegin);
+              pumpkin_screen_dirty(display, 0, 0, w, h);
+              pumpkin_dirty_region_mode(dirtyRegionEnd);
+              state->armScreenRefresh = now;
+            }
+          }
           if (r0) {
             EventType event;
             EvtGetEvent(&event, r1);

@@ -75,6 +75,10 @@ typedef struct {
 #ifdef ARMEMU
   arm_emu_t *arm;
   uint32_t *systable;
+  // ARM code writing straight into the display bitmap is not seen by the
+  // screen update logic, so the display is redrawn periodically instead
+  Boolean armDirectScreen;
+  int64_t armScreenRefresh;
 #endif
   m68k_state_t m68k_state;
   uint32_t SysFormPointerArrayToStrings_addr;
